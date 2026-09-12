@@ -3,6 +3,7 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const crypto = require('crypto');
+const path = require('path');
 const { setupDatabase, User, Setting, Invoice } = require('./database');
 
 const escapeHtml = (text) => {
@@ -36,10 +37,7 @@ const getEmoji = (product) => {
 
 const app = express();
 app.use(express.json());
-
-app.get('/', (req, res) => {
-    res.send('Telegram Reseller Bot is running on Vercel.');
-});
+app.use(express.static(path.join(__dirname, 'public')));
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token || token === 'your_telegram_bot_token_here') {
@@ -76,6 +74,51 @@ app.get('/api/setWebhook', async (req, res) => {
     } catch (e) {
         res.send(`❌ Error setting webhook: ${e.message}`);
     }
+});
+
+// --- ADMIN API ROUTES ---
+const adminAuth = (req, res, next) => {
+    const pass = req.headers['x-admin-pass'];
+    if (pass !== (process.env.ADMIN_PASSWORD || 'admin123')) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    next();
+};
+
+app.post('/api/admin/login', (req, res) => {
+    if (req.body.password === (process.env.ADMIN_PASSWORD || 'admin123')) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: 'Invalid password' });
+    }
+});
+
+app.get('/api/admin/stats', adminAuth, async (req, res) => {
+    const users = await User.find();
+    const totalBalance = users.reduce((acc, u) => acc + u.balance, 0);
+    const markupSetting = await Setting.findOne({ key: 'markup' });
+    const markup = markupSetting ? parseFloat(markupSetting.value) : 1.2;
+    res.json({ success: true, totalUsers: users.length, totalBalance, markup });
+});
+
+app.get('/api/admin/users', adminAuth, async (req, res) => {
+    const users = await User.find().sort({ balance: -1 });
+    res.json({ success: true, users });
+});
+
+app.post('/api/admin/balance', adminAuth, async (req, res) => {
+    const { userId, amount } = req.body;
+    await User.updateOne({ id: userId }, { $inc: { balance: amount } });
+    res.json({ success: true });
+    try {
+        bot.sendMessage(userId, `💰 <b>Your account has been updated by admin. Balance change: $${amount.toFixed(2)}</b>`, { parse_mode: 'HTML' });
+    } catch (e) {}
+});
+
+app.post('/api/admin/markup', adminAuth, async (req, res) => {
+    const { markup } = req.body;
+    await Setting.updateOne({ key: 'markup' }, { value: markup.toString() }, { upsert: true });
+    res.json({ success: true });
 });
 // -----------------------------
 

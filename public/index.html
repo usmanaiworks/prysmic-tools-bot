@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+        .glass {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn-glow:hover {
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: #4f46e5; border-radius: 4px; }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-90 backdrop-blur-md">
+        <div class="glass p-8 rounded-2xl w-full max-w-md shadow-2xl animate-fade-in-up">
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-indigo-600 bg-opacity-20 text-indigo-400 mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                </div>
+                <h2 class="text-3xl font-bold tracking-tight">Admin Portal</h2>
+                <p class="text-slate-400 mt-2">Enter master password to continue</p>
+            </div>
+            <form id="loginForm" class="space-y-6">
+                <div>
+                    <input type="password" id="adminPassword" required class="w-full px-4 py-3 bg-slate-800 bg-opacity-50 border border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white placeholder-slate-400 transition-all outline-none" placeholder="••••••••">
+                </div>
+                <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold btn-glow transition-all">
+                    Unlock Dashboard
+                </button>
+            </form>
+            <p id="loginError" class="text-rose-400 text-center mt-4 hidden">Invalid password. Try again.</p>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="mainDashboard" class="hidden min-h-screen flex flex-col">
+        
+        <!-- Navbar -->
+        <nav class="glass border-b border-slate-700/50 sticky top-0 z-40">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center font-bold shadow-lg">B</div>
+                        <span class="font-bold text-xl tracking-wide">PrysmicBot Control</span>
+                    </div>
+                    <button onclick="logout()" class="text-sm px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600">
+                        Log Out
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="glass p-6 rounded-2xl relative overflow-hidden group">
+                    <div class="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500/20 rounded-full blur-xl group-hover:bg-indigo-500/30 transition-all"></div>
+                    <p class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Total Users</p>
+                    <h3 id="statTotalUsers" class="text-4xl font-bold">0</h3>
+                </div>
+                
+                <div class="glass p-6 rounded-2xl relative overflow-hidden group">
+                    <div class="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/20 rounded-full blur-xl group-hover:bg-emerald-500/30 transition-all"></div>
+                    <p class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Economy (User Balances)</p>
+                    <h3 id="statTotalBalance" class="text-4xl font-bold text-emerald-400">$0.00</h3>
+                </div>
+
+                <div class="glass p-6 rounded-2xl relative overflow-hidden">
+                    <p class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-3">Profit Markup %</p>
+                    <div class="flex items-center gap-3">
+                        <input type="number" step="0.01" id="markupInput" class="w-full px-3 py-2 bg-slate-800/50 border border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value="1.20">
+                        <button onclick="updateMarkup()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-semibold transition-colors btn-glow">Save</button>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-2">Example: 1.20 = 20% markup on cost</p>
+                </div>
+            </div>
+
+            <!-- Users Table -->
+            <div class="glass rounded-2xl overflow-hidden shadow-xl">
+                <div class="px-6 py-5 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
+                    <h3 class="text-lg font-bold">User Management</h3>
+                    <button onclick="loadData()" class="text-indigo-400 hover:text-indigo-300 text-sm font-semibold flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800/50 text-xs uppercase tracking-wider text-slate-400">
+                                <th class="px-6 py-4 font-semibold">User ID</th>
+                                <th class="px-6 py-4 font-semibold">Name / Username</th>
+                                <th class="px-6 py-4 font-semibold">Balance</th>
+                                <th class="px-6 py-4 font-semibold text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody" class="divide-y divide-slate-700/50">
+                            <!-- Rows injected via JS -->
+                            <tr>
+                                <td colspan="4" class="px-6 py-8 text-center text-slate-400">Loading users...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Add Funds Modal -->
+    <div id="fundsModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900 bg-opacity-80 backdrop-blur-sm hidden">
+        <div class="glass p-6 rounded-2xl w-full max-w-sm">
+            <h3 class="text-xl font-bold mb-4" id="fundsModalTitle">Manage Balance</h3>
+            <p class="text-sm text-slate-400 mb-4">User ID: <span id="fundsTargetId" class="font-mono text-white"></span></p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs uppercase tracking-wider text-slate-400 mb-1">Amount ($)</label>
+                    <input type="number" id="fundsAmount" class="w-full px-4 py-2 bg-slate-800/50 border border-slate-600 rounded-lg outline-none focus:border-indigo-500" placeholder="e.g. 5.00 or -5.00">
+                    <p class="text-xs text-slate-400 mt-1">Use negative numbers to remove funds.</p>
+                </div>
+                <div class="flex gap-3 pt-2">
+                    <button onclick="closeFundsModal()" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-colors">Cancel</button>
+                    <button onclick="submitFunds()" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-semibold transition-colors btn-glow">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let adminPass = localStorage.getItem('adminPass');
+
+        const apiFetch = async (url, options = {}) => {
+            options.headers = {
+                ...options.headers,
+                'x-admin-pass': adminPass,
+                'Content-Type': 'application/json'
+            };
+            const res = await fetch(url, options);
+            const data = await res.json();
+            if (res.status === 401) {
+                logout();
+                throw new Error('Unauthorized');
+            }
+            return data;
+        };
+
+        const loginForm = document.getElementById('loginForm');
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const pass = document.getElementById('adminPassword').value;
+            try {
+                const res = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pass })
+                });
+                if (res.ok) {
+                    adminPass = pass;
+                    localStorage.setItem('adminPass', pass);
+                    document.getElementById('loginError').classList.add('hidden');
+                    showDashboard();
+                } else {
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (err) {
+                alert('Server error');
+            }
+        });
+
+        function logout() {
+            localStorage.removeItem('adminPass');
+            adminPass = null;
+            document.getElementById('mainDashboard').classList.add('hidden');
+            document.getElementById('loginOverlay').classList.remove('hidden');
+        }
+
+        async function showDashboard() {
+            document.getElementById('loginOverlay').classList.add('hidden');
+            document.getElementById('mainDashboard').classList.remove('hidden');
+            await loadData();
+        }
+
+        async function loadData() {
+            try {
+                const stats = await apiFetch('/api/admin/stats');
+                document.getElementById('statTotalUsers').innerText = stats.totalUsers;
+                document.getElementById('statTotalBalance').innerText = '$' + stats.totalBalance.toFixed(2);
+                document.getElementById('markupInput').value = stats.markup;
+
+                const usersRes = await apiFetch('/api/admin/users');
+                const tbody = document.getElementById('usersTableBody');
+                tbody.innerHTML = '';
+                
+                if (usersRes.users.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">No users found.</td></tr>`;
+                    return;
+                }
+
+                usersRes.users.forEach(u => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-slate-800/40 transition-colors';
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 font-mono text-sm text-slate-300">${u.id}</td>
+                        <td class="px-6 py-4">
+                            <div class="font-semibold">${escapeHtml(u.first_name)}</div>
+                            <div class="text-xs text-slate-400">@${escapeHtml(u.username || 'none')}</div>
+                        </td>
+                        <td class="px-6 py-4 font-bold text-emerald-400">$${u.balance.toFixed(2)}</td>
+                        <td class="px-6 py-4 text-right">
+                            <button onclick="openFundsModal(${u.id}, '${escapeHtml(u.first_name)}')" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-xs font-semibold btn-glow transition-all">Manage $</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        let targetUserId = null;
+        function openFundsModal(userId, name) {
+            targetUserId = userId;
+            document.getElementById('fundsTargetId').innerText = userId + ` (${name})`;
+            document.getElementById('fundsAmount').value = '';
+            document.getElementById('fundsModal').classList.remove('hidden');
+        }
+
+        function closeFundsModal() {
+            document.getElementById('fundsModal').classList.add('hidden');
+            targetUserId = null;
+        }
+
+        async function submitFunds() {
+            if (!targetUserId) return;
+            const amt = parseFloat(document.getElementById('fundsAmount').value);
+            if (isNaN(amt)) return alert('Invalid amount');
+            
+            const btn = event.target;
+            btn.innerText = 'Saving...';
+            try {
+                await apiFetch('/api/admin/balance', {
+                    method: 'POST',
+                    body: JSON.stringify({ userId: targetUserId, amount: amt })
+                });
+                closeFundsModal();
+                loadData();
+            } catch (e) {
+                alert('Failed to update balance');
+            }
+            btn.innerText = 'Confirm';
+        }
+
+        async function updateMarkup() {
+            const markup = parseFloat(document.getElementById('markupInput').value);
+            if (isNaN(markup)) return alert('Invalid markup');
+            try {
+                await apiFetch('/api/admin/markup', {
+                    method: 'POST',
+                    body: JSON.stringify({ markup })
+                });
+                alert('Markup saved successfully!');
+            } catch (e) {
+                alert('Failed to update markup');
+            }
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return (text || '').replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        // Auto-login check
+        if (adminPass) {
+            showDashboard();
+        }
+    </script>
+</body>
+</html>
