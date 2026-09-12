@@ -17,6 +17,7 @@ const invoiceSchema = new mongoose.Schema({
     invoice_id: { type: String, required: true, unique: true },
     user_id: { type: Number, required: true },
     amount: { type: Number, required: true }, // USDT amount
+    target_product_id: { type: Number, default: null }, // Used for direct checkout
     status: { type: String, default: 'active' },
     created_at: { type: Date, default: Date.now }
 });

@@ -482,10 +482,54 @@ bot.setMyCommands([
 
             const costUsd = (product.price_usd * markup) * quantity;
             if (user.balance < costUsd) {
-                const err = `❌ <b>Insufficient Balance!</b>\nYour balance: $${user.balance.toFixed(2)}\nCost: $${costUsd.toFixed(2)}\n\nPlease top up your wallet.`;
-                if (messageToEdit) bot.editMessageText(err, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML' });
-                else bot.sendMessage(chatId, err, { parse_mode: 'HTML' });
-                return;
+                const shortage = costUsd - user.balance;
+                
+                if (!CRYPTO_BOT_TOKEN) {
+                    const err = `❌ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\nPlease ask the admin to enable deposits.`;
+                    if (messageToEdit) return bot.editMessageText(err, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML' });
+                    return bot.sendMessage(chatId, err, { parse_mode: 'HTML' });
+                }
+
+                try {
+                    // Generate a CryptoBot invoice for exactly the shortage (or the full amount)
+                    const invoicePayload = {
+                        asset: 'USDT',
+                        amount: shortage.toFixed(2).toString(),
+                        payload: `buy_${productId}_${fromUser.id}_${Date.now()}`,
+                        allow_comments: false,
+                        allow_anonymous: false
+                    };
+                    
+                    const response = await axios.post('https://pay.crypt.bot/api/createInvoice', invoicePayload, {
+                        headers: { 'Crypto-Pay-API-Token': CRYPTO_BOT_TOKEN }
+                    });
+                    
+                    if (response.data.ok) {
+                        const invoice = response.data.result;
+                        await Invoice.create({
+                            invoice_id: invoice.invoice_id.toString(),
+                            amount: shortage,
+                            user_id: fromUser.id,
+                            target_product_id: productId // Direct Checkout Flag
+                        });
+                        
+                        const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the button below to instantly receive your product!`;
+                        
+                        const keyboard = {
+                            inline_keyboard: [
+                                [{ text: '💸 Pay via CryptoBot', url: invoice.pay_url }],
+                                [{ text: '🔄 Check Payment Status', callback_data: `checkinvoice_${invoice.invoice_id}` }]
+                            ]
+                        };
+                        
+                        if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
+                        return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
+                    } else {
+                        return bot.sendMessage(chatId, '❌ Failed to generate direct payment invoice.');
+                    }
+                } catch(e) {
+                    return bot.sendMessage(chatId, '❌ Payment gateway error.');
+                }
             }
 
             // Deduct locally first
@@ -621,11 +665,22 @@ bot.setMyCommands([
                             await Invoice.updateOne({ invoice_id: invoiceId }, { status: 'paid' });
                             await User.updateOne({ id: dbInvoice.user_id }, { $inc: { balance: dbInvoice.amount } });
                             
-                            bot.editMessageText(`✅ **Payment Successful!**\n\n$${dbInvoice.amount.toFixed(2)} has been added to your wallet!`, {
-                                chat_id: chatId,
-                                message_id: messageId,
-                                parse_mode: 'Markdown'
-                            });
+                            // Check if this was a Direct Checkout
+                            if (dbInvoice.target_product_id) {
+                                bot.editMessageText(`✅ **Payment Successful!**\n\n$${dbInvoice.amount.toFixed(2)} received. Delivering your product now... ⚡`, {
+                                    chat_id: chatId,
+                                    message_id: messageId,
+                                    parse_mode: 'Markdown'
+                                });
+                                // Immediately trigger the purchase using the new balance
+                                await processPurchase(chatId, dbInvoice.target_product_id, 1, query.from, null);
+                            } else {
+                                bot.editMessageText(`✅ **Payment Successful!**\n\n$${dbInvoice.amount.toFixed(2)} has been added to your wallet!`, {
+                                    chat_id: chatId,
+                                    message_id: messageId,
+                                    parse_mode: 'Markdown'
+                                });
+                            }
                         } else {
                             bot.sendMessage(chatId, `⏳ Invoice status is still **${cryptInvoice.status}**. Please complete the payment and check again.`, { parse_mode: 'Markdown' });
                         }
