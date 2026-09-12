@@ -61,13 +61,25 @@
         <nav class="glass border-b border-slate-700/50 sticky top-0 z-40">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex items-center justify-between h-16">
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center font-bold shadow-lg">B</div>
-                        <span class="font-bold text-xl tracking-wide">PrysmicBot Control</span>
+                    <div class="flex items-center gap-8">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center font-bold shadow-lg">B</div>
+                            <span class="font-bold text-xl tracking-wide">PrysmicBot Control</span>
+                        </div>
+                        <div class="hidden md:flex gap-4">
+                            <button onclick="switchTab('users')" id="tabUsers" class="px-3 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white transition-colors">Users</button>
+                            <button onclick="switchTab('products')" id="tabProducts" class="px-3 py-2 text-sm font-semibold rounded-lg hover:bg-slate-800 text-slate-300 transition-colors">Products Cache</button>
+                        </div>
                     </div>
-                    <button onclick="logout()" class="text-sm px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600">
-                        Log Out
-                    </button>
+                    <div class="flex items-center gap-4">
+                        <button onclick="forceSync()" class="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors border border-emerald-500 font-semibold btn-glow flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            Force Sync
+                        </button>
+                        <button onclick="logout()" class="text-sm px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600">
+                            Log Out
+                        </button>
+                    </div>
                 </div>
             </div>
         </nav>
@@ -99,11 +111,10 @@
             </div>
 
             <!-- Users Table -->
-            <div class="glass rounded-2xl overflow-hidden shadow-xl">
+            <div id="usersView" class="glass rounded-2xl overflow-hidden shadow-xl">
                 <div class="px-6 py-5 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
                     <h3 class="text-lg font-bold">User Management</h3>
                     <button onclick="loadData()" class="text-indigo-400 hover:text-indigo-300 text-sm font-semibold flex items-center gap-1">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                         Refresh
                     </button>
                 </div>
@@ -118,10 +129,30 @@
                             </tr>
                         </thead>
                         <tbody id="usersTableBody" class="divide-y divide-slate-700/50">
-                            <!-- Rows injected via JS -->
-                            <tr>
-                                <td colspan="4" class="px-6 py-8 text-center text-slate-400">Loading users...</td>
+                            <tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Products Table -->
+            <div id="productsView" class="glass rounded-2xl overflow-hidden shadow-xl hidden">
+                <div class="px-6 py-5 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
+                    <h3 class="text-lg font-bold">Product Cache</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800/50 text-xs uppercase tracking-wider text-slate-400">
+                                <th class="px-6 py-4 font-semibold">ID</th>
+                                <th class="px-6 py-4 font-semibold">Product Name</th>
+                                <th class="px-6 py-4 font-semibold">Wholesale Cost</th>
+                                <th class="px-6 py-4 font-semibold">Retail Price (Markup)</th>
+                                <th class="px-6 py-4 font-semibold text-right">Stock</th>
                             </tr>
+                        </thead>
+                        <tbody id="productsTableBody" class="divide-y divide-slate-700/50">
+                            <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Loading products...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -211,34 +242,65 @@
                 document.getElementById('statTotalBalance').innerText = '$' + stats.totalBalance.toFixed(2);
                 document.getElementById('markupInput').value = stats.markup;
 
+                // Load Users
                 const usersRes = await apiFetch('/api/admin/users');
                 const tbody = document.getElementById('usersTableBody');
                 tbody.innerHTML = '';
-                
                 if (usersRes.users.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">No users found.</td></tr>`;
-                    return;
+                } else {
+                    usersRes.users.forEach(u => {
+                        tbody.innerHTML += `<tr class="hover:bg-slate-800/40 transition-colors">
+                            <td class="px-6 py-4 font-mono text-sm text-slate-300">${u.id}</td>
+                            <td class="px-6 py-4"><div class="font-semibold">${escapeHtml(u.first_name)}</div><div class="text-xs text-slate-400">@${escapeHtml(u.username || 'none')}</div></td>
+                            <td class="px-6 py-4 font-bold text-emerald-400">$${u.balance.toFixed(2)}</td>
+                            <td class="px-6 py-4 text-right"><button onclick="openFundsModal(${u.id}, '${escapeHtml(u.first_name)}')" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-xs font-semibold btn-glow transition-all">Manage $</button></td>
+                        </tr>`;
+                    });
                 }
 
-                usersRes.users.forEach(u => {
-                    const tr = document.createElement('tr');
-                    tr.className = 'hover:bg-slate-800/40 transition-colors';
-                    tr.innerHTML = `
-                        <td class="px-6 py-4 font-mono text-sm text-slate-300">${u.id}</td>
-                        <td class="px-6 py-4">
-                            <div class="font-semibold">${escapeHtml(u.first_name)}</div>
-                            <div class="text-xs text-slate-400">@${escapeHtml(u.username || 'none')}</div>
-                        </td>
-                        <td class="px-6 py-4 font-bold text-emerald-400">$${u.balance.toFixed(2)}</td>
-                        <td class="px-6 py-4 text-right">
-                            <button onclick="openFundsModal(${u.id}, '${escapeHtml(u.first_name)}')" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-xs font-semibold btn-glow transition-all">Manage $</button>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                // Load Products
+                const prodRes = await apiFetch('/api/admin/products');
+                const pbody = document.getElementById('productsTableBody');
+                pbody.innerHTML = '';
+                if (prodRes.products.length === 0) {
+                    pbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">No products cached yet.</td></tr>`;
+                } else {
+                    prodRes.products.forEach(p => {
+                        const retail = p.price_usd * stats.markup;
+                        const stockStr = p.stock === 0 ? '<span class="text-rose-400 font-bold">OUT OF STOCK</span>' : (p.stock === null ? '∞' : p.stock);
+                        pbody.innerHTML += `<tr class="hover:bg-slate-800/40 transition-colors">
+                            <td class="px-6 py-4 font-mono text-sm text-slate-300">#${p.id}</td>
+                            <td class="px-6 py-4 font-semibold">${p.emoji || ''} ${escapeHtml(p.name)}</td>
+                            <td class="px-6 py-4 text-slate-300 font-mono">$${p.price_usd.toFixed(2)}</td>
+                            <td class="px-6 py-4 font-bold text-emerald-400">$${retail.toFixed(2)}</td>
+                            <td class="px-6 py-4 text-right">${stockStr}</td>
+                        </tr>`;
+                    });
+                }
             } catch (e) {
                 console.error(e);
             }
+        }
+
+        async function forceSync() {
+            try {
+                await apiFetch('/api/admin/clearcache', { method: 'POST' });
+                alert('Cache successfully synced with VenteBot API!');
+                loadData();
+            } catch(e) {
+                alert('Failed to sync cache.');
+            }
+        }
+
+        function switchTab(tab) {
+            document.getElementById('usersView').classList.add('hidden');
+            document.getElementById('productsView').classList.add('hidden');
+            document.getElementById('tabUsers').className = 'px-3 py-2 text-sm font-semibold rounded-lg hover:bg-slate-800 text-slate-300 transition-colors';
+            document.getElementById('tabProducts').className = 'px-3 py-2 text-sm font-semibold rounded-lg hover:bg-slate-800 text-slate-300 transition-colors';
+            
+            document.getElementById(tab + 'View').classList.remove('hidden');
+            document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).className = 'px-3 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white transition-colors';
         }
 
         let targetUserId = null;

@@ -53,6 +53,29 @@ const getAxiosConfig = () => ({
     headers: { 'X-Reseller-Key': API_KEY, 'Content-Type': 'application/json' }
 });
 
+// --- IN-MEMORY CACHE FOR LIGHTNING FAST RESPONSES ---
+let productCache = null;
+let lastCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getProducts(force = false) {
+    if (!force && productCache && (Date.now() - lastCacheTime < CACHE_TTL)) {
+        return productCache;
+    }
+    try {
+        const response = await axios.get(`${API_BASE}/api/reseller/products`, getAxiosConfig());
+        if (response.data.success) {
+            productCache = response.data.products;
+            lastCacheTime = Date.now();
+            return productCache;
+        }
+    } catch (e) {
+        console.error("Failed to fetch products:", e.message);
+    }
+    return productCache || [];
+}
+// ---------------------------------------------------
+
 // Connect to database on boot (Vercel caches this across warm invocations)
 setupDatabase().catch(console.error);
 
@@ -118,6 +141,18 @@ app.post('/api/admin/balance', adminAuth, async (req, res) => {
 app.post('/api/admin/markup', adminAuth, async (req, res) => {
     const { markup } = req.body;
     await Setting.updateOne({ key: 'markup' }, { value: markup.toString() }, { upsert: true });
+    res.json({ success: true });
+});
+
+app.get('/api/admin/products', adminAuth, async (req, res) => {
+    const products = await getProducts();
+    const markupSetting = await Setting.findOne({ key: 'markup' });
+    const markup = markupSetting ? parseFloat(markupSetting.value) : 1.15;
+    res.json({ success: true, products, markup });
+});
+
+app.post('/api/admin/clearcache', adminAuth, async (req, res) => {
+    await getProducts(true); // Force sync
     res.json({ success: true });
 });
 // -----------------------------
@@ -203,40 +238,47 @@ bot.setMyCommands([
 
     async function sendProductsMenu(chatId, editMessageId = null) {
         try {
-            const response = await axios.get(`${API_BASE}/api/reseller/products`, getAxiosConfig());
-            const markup = await getMarkup();
+            // Show typing indicator for instant feedback
+            bot.sendChatAction(chatId, 'typing').catch(()=>{});
+
+            let products = await getProducts();
             
-            if (response.data.success) {
-                const products = response.data.products;
-                if (!products || products.length === 0) {
-                    bot.sendMessage(chatId, 'No products are currently available.');
-                    return;
-                }
+            // Hide out of stock products
+            products = products.filter(p => p.stock > 0);
 
-                const inlineKeyboard = [];
-                products.forEach(p => {
-                    let priceDisplay = 'N/A';
-                    if (p.price_usd !== undefined) {
-                        const finalPrice = p.price_usd * markup;
-                        priceDisplay = `$${finalPrice.toFixed(2)}`;
-                    }
-                    
-                    const emoji = getEmoji(p);
-                    const stockStatus = p.stock === 0 ? 'Out of stock' : (p.stock === null ? '∞' : p.stock);
-                    const btnText = `${emoji} ${p.name} | ${priceDisplay} | ${stockStatus}`;
-                    inlineKeyboard.push([{ text: btnText, callback_data: `view_${p.id}` }]);
-                });
-                
-                const messageText = '🛒 <b>Choose a product:</b>';
-                const replyMarkup = { inline_keyboard: inlineKeyboard };
-
+            if (!products || products.length === 0) {
+                const msg = '😞 Currently, no products are available.';
                 if (editMessageId) {
-                    bot.editMessageText(messageText, { chat_id: chatId, message_id: editMessageId, parse_mode: 'HTML', reply_markup: replyMarkup });
+                    bot.editMessageText(msg, { chat_id: chatId, message_id: editMessageId, parse_mode: 'HTML' });
                 } else {
-                    bot.sendMessage(chatId, messageText, { parse_mode: 'HTML', reply_markup: replyMarkup });
+                    bot.sendMessage(chatId, msg, { parse_mode: 'HTML' });
                 }
+                return;
+            }
+
+            const markup = await getMarkup();
+
+            const inlineKeyboard = [];
+            products.forEach(p => {
+                let priceDisplay = 'N/A';
+                if (p.price_usd !== undefined) {
+                    const finalPrice = p.price_usd * markup;
+                    priceDisplay = `$${finalPrice.toFixed(2)}`;
+                }
+                
+                const emoji = getEmoji(p);
+                const stockStatus = p.stock === 0 ? 'Out of stock' : (p.stock === null ? '∞' : p.stock);
+                const btnText = `${emoji} ${p.name} | ${priceDisplay} | ${stockStatus}`;
+                inlineKeyboard.push([{ text: btnText, callback_data: `view_${p.id}` }]);
+            });
+            
+            const messageText = '🛒 <b>Choose a product:</b>';
+            const replyMarkup = { inline_keyboard: inlineKeyboard };
+
+            if (editMessageId) {
+                bot.editMessageText(messageText, { chat_id: chatId, message_id: editMessageId, parse_mode: 'HTML', reply_markup: replyMarkup });
             } else {
-                 bot.sendMessage(chatId, 'Failed to retrieve products.');
+                bot.sendMessage(chatId, messageText, { parse_mode: 'HTML', reply_markup: replyMarkup });
             }
         } catch (error) {
             console.error('Error fetching products:', error.message);
@@ -347,10 +389,10 @@ bot.setMyCommands([
         }
 
         try {
-            // Check price from API
-            const productsResp = await axios.get(`${API_BASE}/api/reseller/products`, getAxiosConfig());
-            if (!productsResp.data.success) throw new Error("Failed to fetch product price.");
-            const product = productsResp.data.products.find(p => p.id === productId);
+            // Check price from products cache
+            bot.sendChatAction(chatId, 'typing').catch(()=>{});
+            const products = await getProducts();
+            const product = products.find(p => p.id === productId);
             if (!product) {
                 const err = `❌ Product not found.`;
                 if (messageToEdit) bot.editMessageText(err, { chat_id: chatId, message_id: messageToEdit });
@@ -442,16 +484,16 @@ bot.setMyCommands([
                 const productId = parseInt(data.split('_')[1]);
                 bot.answerCallbackQuery(query.id);
                 
-                const response = await axios.get(`${API_BASE}/api/reseller/products`, getAxiosConfig());
+                const products = await getProducts();
+                const product = products.find(p => p.id === productId);
                 const markup = await getMarkup();
-                if (response.data.success) {
-                    const product = response.data.products.find(p => p.id === productId);
-                    if (!product) {
-                        bot.sendMessage(chatId, '❌ Product not found.');
-                        return;
-                    }
-                    
-                    const finalPrice = product.price_usd * markup;
+
+                if (!product) {
+                    bot.sendMessage(chatId, '❌ Product not found.');
+                    return;
+                }
+                
+                const finalPrice = product.price_usd * markup;
                     const priceDisplay = product.price_usd !== undefined ? `$${finalPrice.toFixed(2)}` : 'N/A';
                     
                     const emoji = getEmoji(product);
