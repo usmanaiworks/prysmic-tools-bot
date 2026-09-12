@@ -18,6 +18,7 @@ const invoiceSchema = new mongoose.Schema({
     user_id: { type: Number, required: true },
     amount: { type: Number, required: true }, // USDT amount
     target_product_id: { type: Number, default: null }, // Used for direct checkout
+    txid: { type: String, default: null }, // Blockchain Transaction Hash for Direct Payments
     status: { type: String, default: 'active' },
     created_at: { type: Date, default: Date.now }
 });

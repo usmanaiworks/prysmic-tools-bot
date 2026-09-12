@@ -238,6 +238,25 @@ app.post('/api/admin/clearcache', adminAuth, async (req, res) => {
     await getProducts(true); // Force sync
     res.json({ success: true });
 });
+
+app.post('/api/admin/settings', adminAuth, async (req, res) => {
+    const { markup, trc20_wallet } = req.body;
+    if (markup !== undefined) {
+        await Setting.updateOne({ key: 'markup' }, { value: markup.toString() }, { upsert: true });
+    }
+    if (trc20_wallet !== undefined) {
+        await Setting.updateOne({ key: 'trc20_wallet' }, { value: trc20_wallet.trim() }, { upsert: true });
+    }
+    res.json({ success: true });
+});
+
+app.get('/api/admin/settings', adminAuth, async (req, res) => {
+    const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
+    res.json({ 
+        success: true, 
+        trc20_wallet: trc20Setting ? trc20Setting.value : '' 
+    });
+});
 // -----------------------------
 
 bot.setMyCommands([
@@ -484,8 +503,11 @@ bot.setMyCommands([
             if (user.balance < costUsd) {
                 const shortage = costUsd - user.balance;
                 
-                if (!CRYPTO_BOT_TOKEN) {
-                    const err = `❌ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\nPlease ask the admin to enable deposits.`;
+                const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
+                const trc20Wallet = trc20Setting ? trc20Setting.value : null;
+
+                if (!CRYPTO_BOT_TOKEN && !trc20Wallet) {
+                    const err = `❌ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\nPlease ask the admin to enable payment methods.`;
                     if (messageToEdit) return bot.editMessageText(err, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML' });
                     return bot.sendMessage(chatId, err, { parse_mode: 'HTML' });
                 }
@@ -516,18 +538,37 @@ bot.setMyCommands([
                         const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the button below to instantly receive your product!`;
                         
                         const keyboard = {
-                            inline_keyboard: [
-                                [{ text: '💸 Pay via CryptoBot', url: invoice.pay_url }],
-                                [{ text: '🔄 Check Payment Status', callback_data: `checkinvoice_${invoice.invoice_id}` }]
-                            ]
+                            inline_keyboard: []
                         };
+                        
+                        if (CRYPTO_BOT_TOKEN) {
+                            keyboard.inline_keyboard.push([{ text: '💸 Pay via CryptoBot', url: invoice.pay_url }]);
+                            keyboard.inline_keyboard.push([{ text: '🔄 Check Payment Status', callback_data: `checkinvoice_${invoice.invoice_id}` }]);
+                        }
+                        
+                        if (trc20Wallet) {
+                            keyboard.inline_keyboard.push([{ text: '🏦 Pay Directly (Binance / TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]);
+                        }
                         
                         if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
                         return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
                     } else {
-                        return bot.sendMessage(chatId, '❌ Failed to generate direct payment invoice.');
+                        // Fallback if API fails but direct pay is enabled
+                        if (trc20Wallet) {
+                             const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the button below to instantly receive your product!`;
+                             const keyboard = { inline_keyboard: [[{ text: '🏦 Pay Directly (Binance / TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]] };
+                             if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
+                             return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
+                        }
+                        return bot.sendMessage(chatId, '❌ Failed to generate payment invoice.');
                     }
                 } catch(e) {
+                    if (trc20Wallet) {
+                         const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the button below to instantly receive your product!`;
+                         const keyboard = { inline_keyboard: [[{ text: '🏦 Pay Directly (Binance / TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]] };
+                         if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
+                         return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
+                    }
                     return bot.sendMessage(chatId, '❌ Payment gateway error.');
                 }
             }
@@ -690,6 +731,110 @@ bot.setMyCommands([
                 } catch (err) {
                     bot.sendMessage(chatId, '❌ Error checking invoice status.');
                 }
+            }
+            else if (data.startsWith('directpay_TRC20_')) {
+                const parts = data.split('_');
+                const productId = parts[2];
+                const shortage = parseFloat(parts[3]);
+                bot.answerCallbackQuery(query.id);
+
+                const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
+                if (!trc20Setting || !trc20Setting.value) return bot.sendMessage(chatId, '❌ TRC20 Wallet not configured.');
+                
+                const address = trc20Setting.value;
+                const msg = `🏦 **Direct Crypto Payment (USDT TRC20)**\n\n` +
+                            `Please send EXACTLY **${shortage.toFixed(2)} USDT** on the **Tron (TRC20)** network to the address below:\n\n` +
+                            `\`${address}\`\n\n` +
+                            `⚠️ *IMPORTANT:* Send only USDT on the TRC20 network. Wait for the transaction to be successful on Binance/TrustWallet.\n\n` +
+                            `Once sent, click the button below to submit your Transaction Hash (TxID) for automatic verification.`;
+                
+                const keyboard = {
+                    inline_keyboard: [
+                        [{ text: '✅ I have sent the USDT', callback_data: `submittx_${productId}_${shortage}` }],
+                        [{ text: '🔙 Cancel', callback_data: 'cmd_products' }]
+                    ]
+                };
+                
+                bot.editMessageText(msg, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: keyboard });
+            }
+            else if (data.startsWith('submittx_')) {
+                const parts = data.split('_');
+                const productId = parts[1];
+                const shortage = parts[2];
+                bot.answerCallbackQuery(query.id);
+                
+                bot.sendMessage(chatId, `🔍 **Please reply to this message with your Transaction Hash (TxID) for verification.**\n\n*(Amount expected: $${shortage})*`, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        force_reply: true,
+                        input_field_placeholder: 'Paste your TxID/Hash here...'
+                    }
+                }).then(sent => {
+                    // We store the state by listening to the reply
+                    bot.onReplyToMessage(chatId, sent.message_id, async (replyMsg) => {
+                        const txid = replyMsg.text.trim();
+                        bot.sendMessage(chatId, `⏳ Checking blockchain for TxID: \`${txid}\`... This may take a moment.`, { parse_mode: 'Markdown' });
+                        
+                        try {
+                            const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
+                            const expectedAddress = trc20Setting.value;
+                            const expectedAmount = parseFloat(shortage);
+                            
+                            // Check if TxID was already used
+                            const existing = await Invoice.findOne({ txid: txid });
+                            if (existing) {
+                                return bot.sendMessage(chatId, `❌ This Transaction Hash has already been used!`);
+                            }
+                            
+                            // Fetch from Tronscan
+                            const res = await axios.get(`https://apilist.tronscan.org/api/transaction-info?hash=${txid}`);
+                            if (!res.data || Object.keys(res.data).length === 0) {
+                                return bot.sendMessage(chatId, `❌ Transaction not found on Tron network. Are you sure this is a TRC20 TxID?`);
+                            }
+                            
+                            const tx = res.data;
+                            if (tx.contractRet !== 'SUCCESS') return bot.sendMessage(chatId, `❌ Transaction failed or is still pending on blockchain.`);
+                            
+                            if (!tx.trc20TransferInfo || tx.trc20TransferInfo.length === 0) {
+                                return bot.sendMessage(chatId, `❌ No TRC20 token transfer found in this transaction.`);
+                            }
+                            
+                            // USDT Contract Address on Tron
+                            const usdtTransfer = tx.trc20TransferInfo.find(t => t.contract_address === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+                            if (!usdtTransfer) return bot.sendMessage(chatId, `❌ No USDT transfer found in this transaction.`);
+                            
+                            if (usdtTransfer.to_address !== expectedAddress) {
+                                return bot.sendMessage(chatId, `❌ Funds were NOT sent to the correct admin wallet!`);
+                            }
+                            
+                            const amountSent = parseFloat(usdtTransfer.amount_str) / 1000000;
+                            if (amountSent < (expectedAmount - 0.05)) { // 5 cents tolerance
+                                return bot.sendMessage(chatId, `❌ Insufficient amount. Expected $${expectedAmount.toFixed(2)}, but received $${amountSent.toFixed(2)}.`);
+                            }
+                            
+                            // Success! Save to DB to prevent reuse
+                            await Invoice.create({
+                                invoice_id: `trc20_${txid}`,
+                                amount: amountSent,
+                                user_id: chatId,
+                                target_product_id: productId,
+                                txid: txid,
+                                status: 'paid'
+                            });
+                            
+                            await User.updateOne({ id: chatId }, { $inc: { balance: amountSent } });
+                            
+                            bot.sendMessage(chatId, `✅ **Blockchain Verification Successful!**\n\n$${amountSent.toFixed(2)} USDT received. Delivering your product now... ⚡`, { parse_mode: 'Markdown' });
+                            
+                            // Immediately purchase
+                            await processPurchase(chatId, productId, 1, replyMsg.from, null);
+                            
+                        } catch (err) {
+                            console.error(err);
+                            bot.sendMessage(chatId, `❌ API Error while verifying transaction. Please try submitting again later or contact support.`);
+                        }
+                    });
+                });
             }
         } catch (e) {
             console.error('Error handling callback query:', e.message);

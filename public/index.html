@@ -133,6 +133,26 @@
                         </tbody>
                     </table>
                 </div>
+                
+                <!-- Payment Settings Section -->
+                <div class="mt-8 bg-slate-800 rounded-xl p-6 border border-slate-700/50 shadow-xl">
+                    <h2 class="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 mb-4 flex items-center gap-2">
+                        <svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Direct Crypto Payment Settings
+                    </h2>
+                    <p class="text-sm text-slate-400 mb-4">Allow customers to pay you directly to your own wallet with 0 fees and 0 KYC. The bot will automatically verify the payment using TronScan!</p>
+                    
+                    <div class="flex flex-col md:flex-row gap-4 items-end">
+                        <div class="flex-1 w-full">
+                            <label class="block text-sm font-medium text-slate-400 mb-1">Your USDT (TRC20) Wallet Address</label>
+                            <input type="text" id="trc20WalletInput" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm" placeholder="e.g. Txyz...">
+                        </div>
+                        <button onclick="saveSettings()" class="bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white font-bold py-2.5 px-6 rounded-lg transition-all shadow-lg hover:shadow-indigo-500/25 flex items-center gap-2 whitespace-nowrap">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                            Save Address
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <!-- Products Table -->
@@ -238,6 +258,12 @@
 
         async function loadData() {
             try {
+                // Load General Settings
+                const settingsRes = await apiFetch('/api/admin/settings');
+                if (settingsRes && settingsRes.trc20_wallet) {
+                    document.getElementById('trc20WalletInput').value = settingsRes.trc20_wallet;
+                }
+
                 const stats = await apiFetch('/api/admin/stats');
                 document.getElementById('statTotalUsers').innerText = stats.totalUsers;
                 document.getElementById('statTotalBalance').innerText = '$' + stats.totalBalance.toFixed(2);
@@ -325,6 +351,19 @@
                 loadData();
             } catch(e) {
                 alert('Failed to sync cache.');
+            }
+        }
+
+        async function saveSettings() {
+            const trc20Wallet = document.getElementById('trc20WalletInput').value;
+            try {
+                await apiFetch('/api/admin/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({ trc20_wallet: trc20Wallet })
+                });
+                alert('Payment settings saved successfully!');
+            } catch(e) {
+                alert('Failed to save settings.');
             }
         }
 
