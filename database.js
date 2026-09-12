@@ -15,21 +15,29 @@ const settingSchema = new mongoose.Schema({
 
 const invoiceSchema = new mongoose.Schema({
     invoice_id: { type: String, required: true, unique: true },
-    amount: { type: Number, required: true },
     user_id: { type: Number, required: true },
-    status: { type: String, default: 'pending' }
+    amount: { type: Number, required: true }, // USDT amount
+    status: { type: String, default: 'active' },
+    created_at: { type: Date, default: Date.now }
+});
+
+const productOverrideSchema = new mongoose.Schema({
+    product_id: { type: Number, required: true, unique: true },
+    hidden: { type: Boolean, default: false },
+    custom_price: { type: Number, default: null } // If null, use standard markup
 });
 
 // Models
 const User = mongoose.model('User', userSchema);
 const Setting = mongoose.model('Setting', settingSchema);
 const Invoice = mongoose.model('Invoice', invoiceSchema);
+const ProductOverride = mongoose.model('ProductOverride', productOverrideSchema);
 
 async function setupDatabase() {
     const MONGODB_URI = process.env.MONGODB_URI;
     if (!MONGODB_URI) {
         console.warn('⚠️ MONGODB_URI is missing in .env! The bot will not be able to connect to the database.');
-        return { User, Setting, Invoice };
+        return { User, Setting, Invoice, ProductOverride };
     }
 
     try {
@@ -48,4 +56,4 @@ async function setupDatabase() {
     return { User, Setting, Invoice };
 }
 
-module.exports = { setupDatabase, User, Setting, Invoice };
+module.exports = { setupDatabase, User, Setting, Invoice, ProductOverride };

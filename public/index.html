@@ -148,11 +148,12 @@
                                 <th class="px-6 py-4 font-semibold">Product Name</th>
                                 <th class="px-6 py-4 font-semibold">Wholesale Cost</th>
                                 <th class="px-6 py-4 font-semibold">Retail Price (Markup)</th>
-                                <th class="px-6 py-4 font-semibold text-right">Stock</th>
+                                <th class="px-6 py-4 font-semibold">Stock</th>
+                                <th class="px-6 py-4 font-semibold text-right">Visibility</th>
                             </tr>
                         </thead>
                         <tbody id="productsTableBody" class="divide-y divide-slate-700/50">
-                            <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Loading products...</td></tr>
+                            <tr><td colspan="6" class="px-6 py-8 text-center text-slate-400">Loading products...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -264,22 +265,56 @@
                 const pbody = document.getElementById('productsTableBody');
                 pbody.innerHTML = '';
                 if (prodRes.products.length === 0) {
-                    pbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">No products cached yet.</td></tr>`;
+                    pbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-400">No products cached yet.</td></tr>`;
                 } else {
                     prodRes.products.forEach(p => {
-                        const retail = p.price_usd * stats.markup;
                         const stockStr = p.stock === 0 ? '<span class="text-rose-400 font-bold">OUT OF STOCK</span>' : (p.stock === null ? '∞' : p.stock);
-                        pbody.innerHTML += `<tr class="hover:bg-slate-800/40 transition-colors">
+                        const isCustom = p.is_custom_price;
+                        
+                        pbody.innerHTML += `<tr class="hover:bg-slate-800/40 transition-colors ${p.hidden ? 'opacity-50' : ''}">
                             <td class="px-6 py-4 font-mono text-sm text-slate-300">#${p.id}</td>
                             <td class="px-6 py-4 font-semibold">${p.emoji || ''} ${escapeHtml(p.name)}</td>
                             <td class="px-6 py-4 text-slate-300 font-mono">$${p.price_usd.toFixed(2)}</td>
-                            <td class="px-6 py-4 font-bold text-emerald-400">$${retail.toFixed(2)}</td>
-                            <td class="px-6 py-4 text-right">${stockStr}</td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-slate-400">$</span>
+                                    <input type="number" step="0.01" id="price_${p.id}" value="${p.retail_price.toFixed(2)}" class="bg-slate-900 border ${isCustom ? 'border-amber-500 text-amber-400' : 'border-slate-700 text-emerald-400'} rounded px-2 py-1 w-24 text-sm font-bold focus:ring-1 focus:ring-indigo-500" onchange="updateOverride(${p.id})">
+                                    ${isCustom ? '<span class="text-xs text-amber-500 font-bold" title="Custom Price Set">C</span>' : ''}
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">${stockStr}</td>
+                            <td class="px-6 py-4 text-right">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                  <input type="checkbox" id="hide_${p.id}" class="sr-only peer" ${!p.hidden ? 'checked' : ''} onchange="updateOverride(${p.id})">
+                                  <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                                </label>
+                            </td>
                         </tr>`;
                     });
                 }
             } catch (e) {
                 console.error(e);
+            }
+        }
+
+        async function updateOverride(productId) {
+            const priceInput = document.getElementById(`price_${productId}`).value;
+            const isVisible = document.getElementById(`hide_${productId}`).checked;
+            
+            // If the price is empty, we send empty string to reset it to global markup
+            try {
+                await apiFetch('/api/admin/product-override', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        product_id: productId,
+                        hidden: !isVisible,
+                        custom_price: priceInput
+                    })
+                });
+                // Reload to show the exact new calculated values
+                loadData();
+            } catch(e) {
+                alert('Failed to update product settings.');
             }
         }
 

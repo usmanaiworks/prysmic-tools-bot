@@ -4,7 +4,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const crypto = require('crypto');
 const path = require('path');
-const { setupDatabase, User, Setting, Invoice } = require('./database');
+const { setupDatabase, User, Setting, Invoice, ProductOverride } = require('./database');
 
 const escapeHtml = (text) => {
     if (!text) return '';
@@ -17,22 +17,26 @@ const escapeHtml = (text) => {
 };
 
 const getEmoji = (product) => {
-    if (product.emoji) return product.emoji;
-    const name = (product.name || '').toLowerCase();
-    if (name.includes('chatgpt') || name.includes('openai') || name.includes('gpt')) return '🤖';
-    if (name.includes('netflix')) return '🍿';
-    if (name.includes('canva')) return '🎨';
-    if (name.includes('spotify')) return '🎵';
-    if (name.includes('discord') || name.includes('nitro')) return '🎮';
-    if (name.includes('youtube') || name.includes('yt ')) return '📺';
-    if (name.includes('apple') || name.includes('mac')) return '🍎';
-    if (name.includes('office') || name.includes('microsoft') || name.includes('windows')) return '💼';
-    if (name.includes('prime') || name.includes('amazon')) return '📦';
-    if (name.includes('crunchyroll') || name.includes('anime')) return '🦊';
-    if (name.includes('vpn') || name.includes('proxy')) return '🛡️';
-    if (name.includes('capcut') || name.includes('edit')) return '✂️';
-    if (name.includes('adobe') || name.includes('creative')) return '🖌️';
-    return '💎';
+    const n = (product.name || '').toLowerCase();
+    
+    // Check brand keywords for premium emojis
+    if (n.includes('apple') || n.includes('mac')) return '🍎';
+    if (n.includes('windows') || n.includes('microsoft')) return '🪟';
+    if (n.includes('chatgpt') || n.includes('openai') || n.includes('gpt')) return '🧠';
+    if (n.includes('api') || n.includes('token') || n.includes('codex') || n.includes('claude')) return '⚡';
+    if (n.includes('canva')) return '🎨';
+    if (n.includes('spotify')) return '🎵';
+    if (n.includes('netflix')) return '🍿';
+    if (n.includes('discord') || n.includes('nitro')) return '👾';
+    if (n.includes('youtube') || n.includes('yt ')) return '📺';
+    if (n.includes('prime') || n.includes('amazon')) return '📦';
+    if (n.includes('miro')) return '🧩';
+    
+    // If no brand matches, strip out ugly <tg-emoji> HTML and return a clean generic emoji
+    if (product.emoji && !product.emoji.includes('<tg-emoji')) {
+        return product.emoji;
+    }
+    return '💎'; // Premium generic fallback
 };
 
 const app = express();
@@ -65,7 +69,34 @@ async function getProducts(force = false) {
     try {
         const response = await axios.get(`${API_BASE}/api/reseller/products`, getAxiosConfig());
         if (response.data.success) {
-            productCache = response.data.products;
+            let apiProducts = response.data.products;
+            
+            // Merge with MongoDB Overrides (Hidden & Custom Pricing)
+            const overrides = await ProductOverride.find({});
+            const overrideMap = {};
+            overrides.forEach(o => { overrideMap[o.product_id] = o; });
+
+            const markupSetting = await Setting.findOne({ key: 'markup' });
+            const globalMarkup = markupSetting ? parseFloat(markupSetting.value) : 1.15;
+
+            // Apply overrides
+            productCache = apiProducts.map(p => {
+                const ovr = overrideMap[p.id];
+                p.hidden = ovr && ovr.hidden === true;
+                
+                // Calculate final retail price here so we don't need to recalculate everywhere
+                if (ovr && ovr.custom_price !== null && ovr.custom_price !== undefined) {
+                    p.retail_price = ovr.custom_price;
+                    p.is_custom_price = true;
+                } else if (p.price_usd !== undefined) {
+                    p.retail_price = p.price_usd * globalMarkup;
+                    p.is_custom_price = false;
+                } else {
+                    p.retail_price = 0;
+                }
+                return p;
+            });
+
             lastCacheTime = Date.now();
             return productCache;
         }
@@ -164,6 +195,17 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
     res.json({ success: true, products, markup });
 });
 
+app.post('/api/admin/product-override', adminAuth, async (req, res) => {
+    const { product_id, hidden, custom_price } = req.body;
+    await ProductOverride.updateOne(
+        { product_id: parseInt(product_id) },
+        { hidden: hidden, custom_price: custom_price === '' ? null : parseFloat(custom_price) },
+        { upsert: true }
+    );
+    await getProducts(true); // Force refresh cache to apply overrides
+    res.json({ success: true });
+});
+
 app.post('/api/admin/clearcache', adminAuth, async (req, res) => {
     await getProducts(true); // Force sync
     res.json({ success: true });
@@ -256,8 +298,8 @@ bot.setMyCommands([
 
             let products = await getProducts();
             
-            // Hide out of stock products
-            products = products.filter(p => p.stock > 0);
+            // Hide out of stock and manually hidden products
+            products = products.filter(p => p.stock > 0 && !p.hidden);
 
             if (!products || products.length === 0) {
                 const msg = '😞 Currently, no products are available.';
@@ -269,14 +311,11 @@ bot.setMyCommands([
                 return;
             }
 
-            const markup = await getMarkup();
-
             const inlineKeyboard = [];
             products.forEach(p => {
                 let priceDisplay = 'N/A';
-                if (p.price_usd !== undefined) {
-                    const finalPrice = p.price_usd * markup;
-                    priceDisplay = `$${finalPrice.toFixed(2)}`;
+                if (p.retail_price !== undefined) {
+                    priceDisplay = `$${p.retail_price.toFixed(2)}`;
                 }
                 
                 const emoji = getEmoji(p);
@@ -502,12 +541,11 @@ bot.setMyCommands([
                 const markup = await getMarkup();
 
                 if (!product) {
-                    bot.sendMessage(chatId, '❌ Product not found.');
+                    bot.sendMessage(chatId, '❌ Product not found or unavailable.');
                     return;
                 }
                 
-                const finalPrice = product.price_usd * markup;
-                const priceDisplay = product.price_usd !== undefined ? `$${finalPrice.toFixed(2)}` : 'N/A';
+                const priceDisplay = product.retail_price !== undefined ? `$${product.retail_price.toFixed(2)}` : 'N/A';
                 
                 const emoji = getEmoji(product);
                 const name = escapeHtml(product.name);
