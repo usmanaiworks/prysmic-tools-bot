@@ -157,7 +157,7 @@ bot.setMyCommands([
 
     bot.onText(/\/start/, (msg) => {
         const chatId = msg.chat.id;
-        const welcomeMessage = `<b>Welcome to the Reseller Bot!</b> 🚀\n\nPlease choose an option below or use the menu:`;
+        const welcomeMessage = `<b>Welcome to the Premium Store!</b> 💎\n\nPlease choose an option below or use the menu:`;
         
         bot.sendMessage(chatId, welcomeMessage, {
             parse_mode: 'HTML',
@@ -185,7 +185,7 @@ bot.setMyCommands([
                 try {
                     const resellerResp = await axios.get(`${API_BASE}/api/reseller/me`, getAxiosConfig());
                     if (resellerResp.data.success) {
-                        message += `\n\n👑 <b>Admin Info (Reseller API)</b>\nGlobal Reseller Balance: $${resellerResp.data.wallet_balance}`;
+                        message += `\n\n👑 <b>Admin Wholesale Info</b>\nGlobal Wholesale Balance: $${resellerResp.data.wallet_balance}`;
                     }
                 } catch(e) {}
             }
