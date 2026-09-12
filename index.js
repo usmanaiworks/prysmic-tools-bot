@@ -82,9 +82,22 @@ setupDatabase().catch(console.error);
 const bot = new TelegramBot(token);
 
 // --- VERCEL WEBHOOK ROUTES ---
-app.post('/api/bot', (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
+app.post('/api/bot', async (req, res) => {
+    try {
+        await setupDatabase(); // Make sure DB is connected before processing
+        bot.processUpdate(req.body);
+    } catch(e) {
+        console.error(e);
+    }
+    
+    // VERY IMPORTANT FOR VERCEL: 
+    // Vercel freezes the serverless function the exact millisecond res.sendStatus() is called.
+    // Because bot.processUpdate runs asynchronously in the background, if we send 200 immediately, 
+    // Vercel will freeze the bot mid-thought, causing messages to get stuck for 10+ seconds.
+    // We delay the HTTP response by 2.5 seconds to give the bot time to finish sending messages to Telegram!
+    setTimeout(() => {
+        res.sendStatus(200);
+    }, 2500);
 });
 
 app.get('/api/setWebhook', async (req, res) => {
