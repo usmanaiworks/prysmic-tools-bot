@@ -35,20 +35,15 @@ const getEmoji = (product) => {
 };
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.use(express.json());
 
 app.get('/', (req, res) => {
-    res.send('Telegram Reseller Bot is running.');
-});
-
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    res.send('Telegram Reseller Bot is running on Vercel.');
 });
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token || token === 'your_telegram_bot_token_here') {
     console.error('TELEGRAM_BOT_TOKEN is missing or invalid.');
-    process.exit(1);
 }
 
 const API_BASE = 'https://ventetelegrambotrailway-production.up.railway.app';
@@ -60,17 +55,31 @@ const getAxiosConfig = () => ({
     headers: { 'X-Reseller-Key': API_KEY, 'Content-Type': 'application/json' }
 });
 
-(async () => {
-    await setupDatabase();
+// Connect to database on boot (Vercel caches this across warm invocations)
+setupDatabase().catch(console.error);
+
+const bot = new TelegramBot(token);
+
+// --- VERCEL WEBHOOK ROUTES ---
+app.post('/api/bot', (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+});
+
+app.get('/api/setWebhook', async (req, res) => {
+    const url = req.query.url; // pass the vercel url e.g., ?url=https://mybot.vercel.app
+    if (!url) return res.send('Please pass ?url=https://your-vercel-project.vercel.app');
     
-    if (!process.env.MONGODB_URI || process.env.MONGODB_URI === 'mongodb+srv://your_uri_here') {
-        console.error("FATAL ERROR: MONGODB_URI is not set. You must provide a valid MongoDB connection string.");
-        return;
+    try {
+        await bot.setWebHook(`${url}/api/bot`);
+        res.send(`✅ Webhook successfully set to ${url}/api/bot`);
+    } catch (e) {
+        res.send(`❌ Error setting webhook: ${e.message}`);
     }
+});
+// -----------------------------
 
-    const bot = new TelegramBot(token, { polling: true });
-
-    bot.setMyCommands([
+bot.setMyCommands([
         { command: '/start', description: '🚀 Main Menu' },
         { command: '/products', description: '🛒 Products & Catalog' },
         { command: '/wallet', description: '💳 Wallet & Top-up' },
@@ -470,9 +479,7 @@ const getAxiosConfig = () => ({
         }
     });
 
-    console.log('Telegram bot is starting...');
-    bot.on('polling_error', (error) => console.error('Polling Error:', error.code, error.message));
     bot.on('error', (error) => console.error('General Error:', error.code, error.message));
     process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
-})();
+module.exports = app;
