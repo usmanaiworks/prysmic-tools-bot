@@ -763,82 +763,101 @@ bot.setMyCommands([
                 const shortage = parts[2];
                 bot.answerCallbackQuery(query.id);
                 
-                bot.sendMessage(chatId, `🔍 **Please reply to this message with your Transaction Hash (TxID) for verification.**\n\n*(Amount expected: $${shortage})*`, {
+                bot.sendMessage(chatId, `🔍 **Please reply to this message with your Transaction Hash (TxID) for verification.**\n\n*(Amount expected: $${shortage} | PID: ${productId})*`, {
                     parse_mode: 'Markdown',
                     reply_markup: {
                         force_reply: true,
                         input_field_placeholder: 'Paste your TxID/Hash here...'
                     }
-                }).then(sent => {
-                    // We store the state by listening to the reply
-                    bot.onReplyToMessage(chatId, sent.message_id, async (replyMsg) => {
-                        const txid = replyMsg.text.trim();
-                        bot.sendMessage(chatId, `⏳ Checking blockchain for TxID: \`${txid}\`... This may take a moment.`, { parse_mode: 'Markdown' });
-                        
-                        try {
-                            const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
-                            const expectedAddress = trc20Setting.value;
-                            const expectedAmount = parseFloat(shortage);
-                            
-                            // Check if TxID was already used
-                            const existing = await Invoice.findOne({ txid: txid });
-                            if (existing) {
-                                return bot.sendMessage(chatId, `❌ This Transaction Hash has already been used!`);
-                            }
-                            
-                            // Fetch from Tronscan
-                            const res = await axios.get(`https://apilist.tronscan.org/api/transaction-info?hash=${txid}`);
-                            if (!res.data || Object.keys(res.data).length === 0) {
-                                return bot.sendMessage(chatId, `❌ Transaction not found on Tron network. Are you sure this is a TRC20 TxID?`);
-                            }
-                            
-                            const tx = res.data;
-                            if (tx.contractRet !== 'SUCCESS') return bot.sendMessage(chatId, `❌ Transaction failed or is still pending on blockchain.`);
-                            
-                            if (!tx.trc20TransferInfo || tx.trc20TransferInfo.length === 0) {
-                                return bot.sendMessage(chatId, `❌ No TRC20 token transfer found in this transaction.`);
-                            }
-                            
-                            // USDT Contract Address on Tron
-                            const usdtTransfer = tx.trc20TransferInfo.find(t => t.contract_address === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
-                            if (!usdtTransfer) return bot.sendMessage(chatId, `❌ No USDT transfer found in this transaction.`);
-                            
-                            if (usdtTransfer.to_address !== expectedAddress) {
-                                return bot.sendMessage(chatId, `❌ Funds were NOT sent to the correct admin wallet!`);
-                            }
-                            
-                            const amountSent = parseFloat(usdtTransfer.amount_str) / 1000000;
-                            if (amountSent < (expectedAmount - 0.05)) { // 5 cents tolerance
-                                return bot.sendMessage(chatId, `❌ Insufficient amount. Expected $${expectedAmount.toFixed(2)}, but received $${amountSent.toFixed(2)}.`);
-                            }
-                            
-                            // Success! Save to DB to prevent reuse
-                            await Invoice.create({
-                                invoice_id: `trc20_${txid}`,
-                                amount: amountSent,
-                                user_id: chatId,
-                                target_product_id: productId,
-                                txid: txid,
-                                status: 'paid'
-                            });
-                            
-                            await User.updateOne({ id: chatId }, { $inc: { balance: amountSent } });
-                            
-                            bot.sendMessage(chatId, `✅ **Blockchain Verification Successful!**\n\n$${amountSent.toFixed(2)} USDT received. Delivering your product now... ⚡`, { parse_mode: 'Markdown' });
-                            
-                            // Immediately purchase
-                            await processPurchase(chatId, productId, 1, replyMsg.from, null);
-                            
-                        } catch (err) {
-                            console.error(err);
-                            bot.sendMessage(chatId, `❌ API Error while verifying transaction. Please try submitting again later or contact support.`);
-                        }
-                    });
                 });
             }
         } catch (e) {
             console.error('Error handling callback query:', e.message);
             bot.answerCallbackQuery(query.id, { text: 'An error occurred.', show_alert: true });
+        }
+    });
+
+    // Stateless Message Handler for Replies (Vercel Serverless Compatible)
+    bot.on('message', async (msg) => {
+        // Only process text messages that are replies
+        if (!msg.text || !msg.reply_to_message || !msg.reply_to_message.text) return;
+        
+        const replyText = msg.reply_to_message.text;
+        if (replyText.includes('Transaction Hash (TxID)')) {
+            const chatId = msg.chat.id;
+            const txid = msg.text.trim();
+            
+            const amountMatch = replyText.match(/\$([\d\.]+)/);
+            const pidMatch = replyText.match(/PID: (\d+)/);
+            
+            if (!amountMatch || !pidMatch) {
+                return bot.sendMessage(chatId, "❌ Error parsing product details. Please click 'I have sent the USDT' again.");
+            }
+            
+            const expectedAmount = parseFloat(amountMatch[1]);
+            const productId = parseInt(pidMatch[1]);
+            
+            bot.sendMessage(chatId, `⏳ Checking blockchain for TxID: \`${txid}\`... This may take a moment.`, { parse_mode: 'Markdown' });
+            
+            try {
+                const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
+                const expectedAddress = trc20Setting ? trc20Setting.value : null;
+                
+                if (!expectedAddress) return bot.sendMessage(chatId, `❌ Admin wallet not configured.`);
+                
+                // Check if TxID was already used
+                const existing = await Invoice.findOne({ txid: txid });
+                if (existing) {
+                    return bot.sendMessage(chatId, `❌ This Transaction Hash has already been used!`);
+                }
+                
+                // Fetch from Tronscan
+                const res = await axios.get(`https://apilist.tronscan.org/api/transaction-info?hash=${txid}`);
+                if (!res.data || Object.keys(res.data).length === 0) {
+                    return bot.sendMessage(chatId, `❌ Transaction not found on Tron network. Are you sure this is a TRC20 TxID?`);
+                }
+                
+                const tx = res.data;
+                if (tx.contractRet !== 'SUCCESS') return bot.sendMessage(chatId, `❌ Transaction failed or is still pending on blockchain.`);
+                
+                if (!tx.trc20TransferInfo || tx.trc20TransferInfo.length === 0) {
+                    return bot.sendMessage(chatId, `❌ No TRC20 token transfer found in this transaction.`);
+                }
+                
+                // USDT Contract Address on Tron
+                const usdtTransfer = tx.trc20TransferInfo.find(t => t.contract_address === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+                if (!usdtTransfer) return bot.sendMessage(chatId, `❌ No USDT transfer found in this transaction.`);
+                
+                if (usdtTransfer.to_address !== expectedAddress) {
+                    return bot.sendMessage(chatId, `❌ Funds were NOT sent to the correct admin wallet!`);
+                }
+                
+                const amountSent = parseFloat(usdtTransfer.amount_str) / 1000000;
+                if (amountSent < (expectedAmount - 0.05)) { // 5 cents tolerance
+                    return bot.sendMessage(chatId, `❌ Insufficient amount. Expected $${expectedAmount.toFixed(2)}, but received $${amountSent.toFixed(2)}.`);
+                }
+                
+                // Success! Save to DB to prevent reuse
+                await Invoice.create({
+                    invoice_id: `trc20_${txid}`,
+                    amount: amountSent,
+                    user_id: chatId,
+                    target_product_id: productId,
+                    txid: txid,
+                    status: 'paid'
+                });
+                
+                await User.updateOne({ id: chatId }, { $inc: { balance: amountSent } });
+                
+                bot.sendMessage(chatId, `✅ **Blockchain Verification Successful!**\n\n$${amountSent.toFixed(2)} USDT received. Delivering your product now... ⚡`, { parse_mode: 'Markdown' });
+                
+                // Immediately purchase
+                await processPurchase(chatId, productId, 1, msg.from, null);
+                
+            } catch (err) {
+                console.error(err);
+                bot.sendMessage(chatId, `❌ API Error while verifying transaction. Please try submitting again later or contact support.`);
+            }
         }
     });
 
