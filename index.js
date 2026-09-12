@@ -494,27 +494,26 @@ bot.setMyCommands([
                 }
                 
                 const finalPrice = product.price_usd * markup;
-                    const priceDisplay = product.price_usd !== undefined ? `$${finalPrice.toFixed(2)}` : 'N/A';
-                    
-                    const emoji = getEmoji(product);
-                    const name = escapeHtml(product.name);
-                    const desc = escapeHtml(product.description);
-                    const stockDisplay = product.stock === 0 ? '❌ Out of stock' : (product.stock === null ? '✅ Unlimited' : `📦 ${product.stock} available`);
-                    
-                    const message = `${emoji} <b>${name}</b>\n━━━━━━━━━━━━━━━━━━\n💰 <b>Price:</b> ${priceDisplay}\n🏷️ <b>Type:</b> ${product.delivery_type}\n📊 <b>Stock:</b> ${stockDisplay}\n\n📝 <b>Description:</b>\n<i>${desc}</i>\n━━━━━━━━━━━━━━━━━━`;
-                    
-                    bot.editMessageText(message, {
-                        chat_id: chatId,
-                        message_id: messageId,
-                        parse_mode: 'HTML',
-                        reply_markup: {
-                            inline_keyboard: [
-                                [{ text: `💲 Buy Now (${priceDisplay})`, callback_data: `buyconfirm_${product.id}` }],
-                                [{ text: '🔙 Back to Products', callback_data: 'cmd_products' }]
-                            ]
-                        }
-                    });
-                }
+                const priceDisplay = product.price_usd !== undefined ? `$${finalPrice.toFixed(2)}` : 'N/A';
+                
+                const emoji = getEmoji(product);
+                const name = escapeHtml(product.name);
+                const desc = escapeHtml(product.description);
+                const stockDisplay = product.stock === 0 ? '❌ Out of stock' : (product.stock === null ? '✅ Unlimited' : `📦 ${product.stock} available`);
+                
+                const message = `${emoji} <b>${name}</b>\n━━━━━━━━━━━━━━━━━━\n💰 <b>Price:</b> ${priceDisplay}\n🏷️ <b>Type:</b> ${product.delivery_type}\n📊 <b>Stock:</b> ${stockDisplay}\n\n📝 <b>Description:</b>\n<i>${desc}</i>\n━━━━━━━━━━━━━━━━━━`;
+                
+                bot.editMessageText(message, {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'HTML',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: `💲 Buy Now (${priceDisplay})`, callback_data: `buyconfirm_${product.id}` }],
+                            [{ text: '🔙 Back to Products', callback_data: 'cmd_products' }]
+                        ]
+                    }
+                });
             }
             else if (data.startsWith('buyconfirm_')) {
                 const productId = parseInt(data.split('_')[1]);
