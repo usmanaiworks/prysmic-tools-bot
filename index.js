@@ -240,21 +240,26 @@ app.post('/api/admin/clearcache', adminAuth, async (req, res) => {
 });
 
 app.post('/api/admin/settings', adminAuth, async (req, res) => {
-    const { markup, trc20_wallet } = req.body;
+    const { markup, trc20_wallet, binance_uid } = req.body;
     if (markup !== undefined) {
         await Setting.updateOne({ key: 'markup' }, { value: markup.toString() }, { upsert: true });
     }
     if (trc20_wallet !== undefined) {
         await Setting.updateOne({ key: 'trc20_wallet' }, { value: trc20_wallet.trim() }, { upsert: true });
     }
+    if (binance_uid !== undefined) {
+        await Setting.updateOne({ key: 'binance_uid' }, { value: binance_uid.trim() }, { upsert: true });
+    }
     res.json({ success: true });
 });
 
 app.get('/api/admin/settings', adminAuth, async (req, res) => {
     const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
+    const binanceSetting = await Setting.findOne({ key: 'binance_uid' });
     res.json({ 
         success: true, 
-        trc20_wallet: trc20Setting ? trc20Setting.value : '' 
+        trc20_wallet: trc20Setting ? trc20Setting.value : '',
+        binance_uid: binanceSetting ? binanceSetting.value : ''
     });
 });
 // -----------------------------
@@ -506,7 +511,10 @@ bot.setMyCommands([
                 const trc20Setting = await Setting.findOne({ key: 'trc20_wallet' });
                 const trc20Wallet = trc20Setting ? trc20Setting.value : null;
 
-                if (!CRYPTO_BOT_TOKEN && !trc20Wallet) {
+                const binanceSetting = await Setting.findOne({ key: 'binance_uid' });
+                const binanceUid = binanceSetting ? binanceSetting.value : null;
+
+                if (!CRYPTO_BOT_TOKEN && !trc20Wallet && !binanceUid) {
                     const err = `❌ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\nPlease ask the admin to enable payment methods.`;
                     if (messageToEdit) return bot.editMessageText(err, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML' });
                     return bot.sendMessage(chatId, err, { parse_mode: 'HTML' });
@@ -547,25 +555,35 @@ bot.setMyCommands([
                         }
                         
                         if (trc20Wallet) {
-                            keyboard.inline_keyboard.push([{ text: '🏦 Pay Directly (Binance / TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]);
+                            keyboard.inline_keyboard.push([{ text: '🏦 Pay Directly (TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]);
+                        }
+                        
+                        if (binanceUid) {
+                            keyboard.inline_keyboard.push([{ text: '🟡 Pay via Binance Pay', callback_data: `directpay_BINANCE_${productId}_${shortage}` }]);
                         }
                         
                         if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
                         return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
                     } else {
                         // Fallback if API fails but direct pay is enabled
-                        if (trc20Wallet) {
-                             const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the button below to instantly receive your product!`;
-                             const keyboard = { inline_keyboard: [[{ text: '🏦 Pay Directly (Binance / TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]] };
+                        if (trc20Wallet || binanceUid) {
+                             const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the buttons below to instantly receive your product!`;
+                             const keyboard = { inline_keyboard: [] };
+                             if (trc20Wallet) keyboard.inline_keyboard.push([{ text: '🏦 Pay Directly (TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]);
+                             if (binanceUid) keyboard.inline_keyboard.push([{ text: '🟡 Pay via Binance Pay', callback_data: `directpay_BINANCE_${productId}_${shortage}` }]);
+                             
                              if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
                              return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
                         }
                         return bot.sendMessage(chatId, '❌ Failed to generate payment invoice.');
                     }
                 } catch(e) {
-                    if (trc20Wallet) {
-                         const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the button below to instantly receive your product!`;
-                         const keyboard = { inline_keyboard: [[{ text: '🏦 Pay Directly (Binance / TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]] };
+                    if (trc20Wallet || binanceUid) {
+                         const payMsg = `⚠️ <b>Insufficient Balance</b>\n\nYour Balance: $${user.balance.toFixed(2)}\nProduct Cost: $${costUsd.toFixed(2)}\n\n💳 <b>Direct Checkout:</b>\nPay exactly <b>$${shortage.toFixed(2)} USDT</b> via the buttons below to instantly receive your product!`;
+                         const keyboard = { inline_keyboard: [] };
+                         if (trc20Wallet) keyboard.inline_keyboard.push([{ text: '🏦 Pay Directly (TrustWallet)', callback_data: `directpay_TRC20_${productId}_${shortage}` }]);
+                         if (binanceUid) keyboard.inline_keyboard.push([{ text: '🟡 Pay via Binance Pay', callback_data: `directpay_BINANCE_${productId}_${shortage}` }]);
+                         
                          if (messageToEdit) return bot.editMessageText(payMsg, { chat_id: chatId, message_id: messageToEdit, parse_mode: 'HTML', reply_markup: keyboard });
                          return bot.sendMessage(chatId, payMsg, { parse_mode: 'HTML', reply_markup: keyboard });
                     }
@@ -757,6 +775,51 @@ bot.setMyCommands([
                 
                 bot.editMessageText(msg, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: keyboard });
             }
+            else if (data.startsWith('directpay_BINANCE_')) {
+                const parts = data.split('_');
+                const productId = parts[2];
+                const shortage = parseFloat(parts[3]);
+                bot.answerCallbackQuery(query.id);
+
+                const binanceSetting = await Setting.findOne({ key: 'binance_uid' });
+                if (!binanceSetting || !binanceSetting.value) return bot.sendMessage(chatId, '❌ Binance Pay UID not configured.');
+                
+                const uid = binanceSetting.value;
+                const orderId = `BIN_${Date.now().toString().slice(-6)}`;
+                
+                const msg = `◇ Payment via Binance Pay\n\n` +
+                            `🧾 🔖 Order: #${orderId}\n` +
+                            `◇ Binance ID (tap to copy):\n` +
+                            `\`${uid}\`\n` +
+                            `💰 Amount to transfer: $${shortage.toFixed(2)}\n\n` +
+                            `━━━━━━━━━━━━━━━━━━━━\n` +
+                            `📝 Instructions:\n` +
+                            `1️⃣ Send the exact amount (USDT or USDC only) via Binance Pay\n` +
+                            `2️⃣ After payment, click the button below to submit the Order ID / Transaction Reference.`;
+                
+                const keyboard = {
+                    inline_keyboard: [
+                        [{ text: '✅ I have sent the payment', callback_data: `submitbinance_${productId}_${shortage}` }],
+                        [{ text: '🔙 Cancel', callback_data: 'cmd_products' }]
+                    ]
+                };
+                
+                bot.editMessageText(msg, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: keyboard });
+            }
+            else if (data.startsWith('submitbinance_')) {
+                const parts = data.split('_');
+                const productId = parts[1];
+                const shortage = parts[2];
+                bot.answerCallbackQuery(query.id);
+                
+                bot.sendMessage(chatId, `🔍 **Please reply to this message with your Binance Pay Order ID or Transaction Reference.**\n\n*(Amount expected: $${shortage} | PID: ${productId} | Type: BINANCE)*`, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        force_reply: true,
+                        input_field_placeholder: 'Paste your Binance Order ID here...'
+                    }
+                });
+            }
             else if (data.startsWith('submittx_')) {
                 const parts = data.split('_');
                 const productId = parts[1];
@@ -771,6 +834,41 @@ bot.setMyCommands([
                     }
                 });
             }
+            else if (data.startsWith('approvepay_')) {
+                if (!ADMIN_ID || query.from.id !== ADMIN_ID) return bot.answerCallbackQuery(query.id, { text: 'Unauthorized', show_alert: true });
+                
+                const invoiceId = data.split('_')[1];
+                bot.answerCallbackQuery(query.id);
+                
+                const dbInvoice = await Invoice.findOne({ invoice_id: invoiceId });
+                if (!dbInvoice || dbInvoice.status === 'paid') return bot.editMessageText('❌ Invoice already processed or not found.', { chat_id: query.message.chat.id, message_id: query.message.message_id });
+                
+                await Invoice.updateOne({ invoice_id: invoiceId }, { status: 'paid' });
+                await User.updateOne({ id: dbInvoice.user_id }, { $inc: { balance: dbInvoice.amount } });
+                
+                bot.editMessageText(query.message.text + '\n\n✅ **APPROVED. Product is being delivered to user.**', { chat_id: query.message.chat.id, message_id: query.message.message_id });
+                
+                bot.sendMessage(dbInvoice.user_id, `✅ **Your Binance Pay payment has been approved!**\n\n$${dbInvoice.amount.toFixed(2)} received. Delivering your product now... ⚡`, { parse_mode: 'Markdown' });
+                
+                // Create a fake fromUser object to satisfy processPurchase
+                const fakeFromUser = { id: dbInvoice.user_id, username: `user_${dbInvoice.user_id}` };
+                await processPurchase(dbInvoice.user_id, dbInvoice.target_product_id, 1, fakeFromUser, null);
+            }
+            else if (data.startsWith('rejectpay_')) {
+                if (!ADMIN_ID || query.from.id !== ADMIN_ID) return bot.answerCallbackQuery(query.id, { text: 'Unauthorized', show_alert: true });
+                
+                const invoiceId = data.split('_')[1];
+                bot.answerCallbackQuery(query.id);
+                
+                const dbInvoice = await Invoice.findOne({ invoice_id: invoiceId });
+                if (!dbInvoice || dbInvoice.status !== 'pending_approval') return bot.editMessageText('❌ Invoice already processed or not found.', { chat_id: query.message.chat.id, message_id: query.message.message_id });
+                
+                await Invoice.updateOne({ invoice_id: invoiceId }, { status: 'rejected' });
+                
+                bot.editMessageText(query.message.text + '\n\n❌ **REJECTED.**', { chat_id: query.message.chat.id, message_id: query.message.message_id });
+                
+                bot.sendMessage(dbInvoice.user_id, `❌ **Your payment was rejected by the admin.**\n\nIf you believe this is a mistake, please contact support and provide proof of payment.`, { parse_mode: 'Markdown' });
+            }
         } catch (e) {
             console.error('Error handling callback query:', e.message);
             bot.answerCallbackQuery(query.id, { text: 'An error occurred.', show_alert: true });
@@ -783,6 +881,8 @@ bot.setMyCommands([
         if (!msg.text || !msg.reply_to_message || !msg.reply_to_message.text) return;
         
         const replyText = msg.reply_to_message.text;
+        
+        // Handle TRC20 TXID
         if (replyText.includes('Transaction Hash (TxID)')) {
             const chatId = msg.chat.id;
             const txid = msg.text.trim();
@@ -858,6 +958,54 @@ bot.setMyCommands([
                 console.error(err);
                 bot.sendMessage(chatId, `❌ API Error while verifying transaction. Please try submitting again later or contact support.`);
             }
+        }
+        
+        // Handle Binance Pay Order ID (Admin Approval)
+        if (replyText.includes('Binance Pay Order ID or Transaction Reference')) {
+            const chatId = msg.chat.id;
+            const orderId = msg.text.trim();
+            
+            const amountMatch = replyText.match(/\$([\d\.]+)/);
+            const pidMatch = replyText.match(/PID: (\d+)/);
+            
+            if (!amountMatch || !pidMatch) {
+                return bot.sendMessage(chatId, "❌ Error parsing product details. Please try again.");
+            }
+            
+            const expectedAmount = parseFloat(amountMatch[1]);
+            const productId = parseInt(pidMatch[1]);
+            
+            if (!ADMIN_ID) return bot.sendMessage(chatId, `❌ Admin ID not configured. Cannot process manual approval.`);
+            
+            // Save pending invoice
+            const invoice_id = `binance_${Date.now()}`;
+            await Invoice.create({
+                invoice_id: invoice_id,
+                amount: expectedAmount,
+                user_id: chatId,
+                target_product_id: productId,
+                txid: orderId,
+                status: 'pending_approval'
+            });
+            
+            bot.sendMessage(chatId, `⏳ **Payment Submitted!**\n\nYour Binance Pay Order ID \`${orderId}\` has been sent to the Admin for verification. Your product will be delivered automatically as soon as it is approved.`, { parse_mode: 'Markdown' });
+            
+            // Ping Admin
+            const adminMsg = `🟡 **New Binance Pay Payment** 🟡\n\n` +
+                             `**User ID:** ${chatId}\n` +
+                             `**Amount Expected:** $${expectedAmount.toFixed(2)}\n` +
+                             `**Product ID:** ${productId}\n` +
+                             `**Submitted Order ID:** \`${orderId}\`\n\n` +
+                             `Please check your Binance App. If the money has arrived, click Approve to automatically deliver the product.`;
+                             
+            const adminKeyboard = {
+                inline_keyboard: [
+                    [{ text: '✅ Approve Payment', callback_data: `approvepay_${invoice_id}` }],
+                    [{ text: '❌ Reject Payment', callback_data: `rejectpay_${invoice_id}` }]
+                ]
+            };
+            
+            bot.sendMessage(ADMIN_ID, adminMsg, { parse_mode: 'Markdown', reply_markup: adminKeyboard });
         }
     });
 
