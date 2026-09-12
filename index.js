@@ -19,22 +19,50 @@ const escapeHtml = (text) => {
 const getEmoji = (product) => {
     const n = (product.name || '').toLowerCase();
     
-    // Check brand keywords for premium emojis
+    // Check brand keywords for premium emojis (matching storebat aesthetic)
+    if (n.includes('gemini')) return '✨';
+    if (n.includes('chatgpt') || n.includes('openai') || n.includes('gpt')) return '🤖';
+    if (n.includes('claude') || n.includes('anthropic')) return '🧠';
+    if (n.includes('api') || n.includes('token') || n.includes('codex')) return '⚡';
     if (n.includes('apple') || n.includes('mac')) return '🍎';
     if (n.includes('windows') || n.includes('microsoft')) return '🪟';
-    if (n.includes('chatgpt') || n.includes('openai') || n.includes('gpt')) return '🧠';
-    if (n.includes('api') || n.includes('token') || n.includes('codex') || n.includes('claude')) return '⚡';
+    if (n.includes('office') || n.includes('365')) return '💼';
     if (n.includes('canva')) return '🎨';
+    if (n.includes('capcut') || n.includes('edit')) return '✂️';
     if (n.includes('spotify')) return '🎵';
-    if (n.includes('netflix')) return '🍿';
+    if (n.includes('netflix') || n.includes('hbo') || n.includes('prime') || n.includes('video') || n.includes('peacock') || n.includes('supercut')) return '🍿';
     if (n.includes('discord') || n.includes('nitro')) return '👾';
     if (n.includes('youtube') || n.includes('yt ')) return '📺';
-    if (n.includes('prime') || n.includes('amazon')) return '📦';
-    if (n.includes('miro')) return '🧩';
+    if (n.includes('miro') || n.includes('magic patterns')) return '🧩';
+    if (n.includes('warp') || n.includes('replit') || n.includes('cursor')) return '💻';
+    if (n.includes('railway')) return '🚂';
+    if (n.includes('quillbot') || n.includes('grok')) return '🤖';
+    if (n.includes('brain.fm')) return '🎧';
+    if (n.includes('descript')) return '🎙️';
+    if (n.includes('factory')) return '🏭';
+    if (n.includes('manus')) return '🪄';
+    if (n.includes('framer') || n.includes('figma')) return '🖼️';
+    if (n.includes('linear') || n.includes('trading view') || n.includes('tradingview')) return '📈';
+    if (n.includes('elevenlabs') || n.includes('wispr')) return '🗣️';
+    if (n.includes('n8n')) return '🔄';
+    if (n.includes('mobbin')) return '📱';
+    if (n.includes('lovable')) return '💖';
+    if (n.includes('coursera') || n.includes('edu') || n.includes('student')) return '🎓';
+    if (n.includes('gamma')) return '📊';
+    if (n.includes('gmail') || n.includes('email')) return '📧';
+    if (n.includes('notion')) return '📝';
+    if (n.includes('vpn') || n.includes('proxy') || n.includes('nord') || n.includes('surfshark')) return '🛡️';
+    if (n.includes('key')) return '🔑';
+    if (n.includes('adobe') || n.includes('creative')) return '🖌️';
+    if (n.includes('duolingo')) return '🦉';
+    if (n.includes('autodesk')) return '📐';
     
-    // If no brand matches, strip out ugly <tg-emoji> HTML and return a clean generic emoji
-    if (product.emoji && !product.emoji.includes('<tg-emoji')) {
-        return product.emoji;
+    // If no brand matches, extract from <tg-emoji> if present, else fallback
+    if (product.emoji) {
+        // If it's a raw tg-emoji tag, extract the fallback emoji character inside it
+        const match = product.emoji.match(/>([^<]+)<\/tg-emoji>/);
+        if (match && match[1]) return match[1];
+        if (!product.emoji.includes('<tg-emoji')) return product.emoji;
     }
     return '💎'; // Premium generic fallback
 };
